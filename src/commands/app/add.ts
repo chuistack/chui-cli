@@ -39,7 +39,7 @@ export const _loadChoices = async () => {
 
 
 /**
- *
+ * Generate the source list for the prompt.
  * @param _
  * @param input
  * @private
