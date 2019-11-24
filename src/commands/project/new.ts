@@ -1,42 +1,57 @@
 import {Command} from '@oclif/command';
-import * as yaml from "js-yaml";
 import {
   AuthProviders,
-  ChuiConfigFile,
+  ChuiAppSource,
+  ChuiAppTypes,
+  ChuiPromptConfig,
   InfrastructureProviders,
   ServerlessProviders,
   StorageProviders,
 } from "@chuistack/chui-lib/dist/types/config";
-import * as fs from "fs";
 import {cli} from 'cli-ux';
-import {promisify} from "util";
-import {initializeProject} from "../../utils/project";
 import * as inquirer from "inquirer";
-import * as path from "path";
-import {CHUI_CONFIG_FILENAME} from '@chuistack/chui-lib/dist/constants';
+import Chui from '@chuistack/chui-lib/';
 import * as dashify from "dashify";
 import chalk from "chalk";
 import * as validator from "validator";
 
 
-const mkdir = promisify(fs.mkdir);
-const writeFile = promisify(fs.writeFile);
-
 
 /**
- * Generate the list of infrastructure providers.
+ * Creates a prompt for an app type based on the
+ * official list of supported apps.
+ * @param type
+ * @param message
+ * @param addNull
  */
-const getInfrastructureOptions = () => {
-  const opts: { name: string, value?: any }[] = Object
-    .values(InfrastructureProviders)
-    .map(provider => ({
-      name: provider as string
-    }));
-  opts.push({
-    name: 'none',
-    value: undefined,
-  });
-  return opts;
+const promptApp = async <T = string>(
+  type: ChuiAppTypes,
+  message: string,
+  addNull?: boolean,
+): Promise<T|undefined> => {
+  const appList: ChuiAppSource[] = await Chui.App.loadOfficialAppList();
+  const choices: any[] = appList
+      .filter(app => app.type === type)
+      .map(app => ({
+        name: app.variant,
+        value: app.variant,
+      }));
+
+  if(addNull){
+    choices.push({
+      name: 'none',
+      value: undefined,
+    })
+  }
+
+  const {option} = await inquirer.prompt([{
+    message,
+    choices,
+    name: 'option',
+    type: 'list',
+  }]);
+
+  return option;
 };
 
 
@@ -44,55 +59,47 @@ const getInfrastructureOptions = () => {
  * Prompt the user for an infrastructure provider.
  */
 const promptInfrastructure = async (): Promise<InfrastructureProviders | undefined> => {
-  const {infrastructure} = await inquirer.prompt([{
-    name: 'infrastructure',
-    message: 'Select an infrastructure provider (or none).',
-    type: 'list',
-    choices: getInfrastructureOptions(),
-  }]);
-  return infrastructure;
+  return promptApp<InfrastructureProviders>(
+    ChuiAppTypes.Infrastructure,
+    'Select an infrastructure provider',
+    true,
+  );
 };
 
 
 /**
  * Prompt the user for an auth provider.
  */
-const promptAuthProvider = async (): Promise<AuthProviders> => {
-  const {authProvider} = await inquirer.prompt([{
-    name: 'authProvider',
-    message: 'Select an auth provider.',
-    type: 'list',
-    choices: Object.values(AuthProviders),
-  }]);
-  return authProvider;
+const promptAuthProvider = async (): Promise<AuthProviders|undefined> => {
+  return promptApp<AuthProviders>(
+    ChuiAppTypes.Auth,
+    'Select an auth provider (or none).',
+    true,
+  );
 };
 
 
 /**
  * Prompt the user for a storage provider.
  */
-const promptStorageProvider = async (): Promise<StorageProviders> => {
-  const {storageProvider} = await inquirer.prompt([{
-    name: 'storageProvider',
-    message: 'Select a storage provider.',
-    type: 'list',
-    choices: Object.values(StorageProviders),
-  }]);
-  return storageProvider;
+const promptStorageProvider = async (): Promise<StorageProviders|undefined> => {
+  return promptApp<StorageProviders>(
+    ChuiAppTypes.Storage,
+    'Select a storage provider (or none).',
+    true,
+  );
 };
 
 
 /**
  * Prompt the user for a storage provider.
  */
-const promptServerlessProvider = async (): Promise<ServerlessProviders> => {
-  const {serverlessProvider} = await inquirer.prompt([{
-    name: 'serverlessProvider',
-    message: 'Select a serverless provider.',
-    type: 'list',
-    choices: Object.values(ServerlessProviders),
-  }]);
-  return serverlessProvider;
+const promptServerlessProvider = async (): Promise<ServerlessProviders|undefined> => {
+  return promptApp<ServerlessProviders>(
+    ChuiAppTypes.Serverless,
+    'Select a serverless provider (or none).',
+    true,
+  );
 };
 
 
@@ -124,21 +131,10 @@ const promptRootDomain = async () => {
 };
 
 
-interface PromptedConfig {
-  globalAppName: string;
-  rootDomain: string;
-  pulumiOrgName: string;
-  authProvider: AuthProviders;
-  storageProvider: StorageProviders;
-  serverlessProvider: ServerlessProviders;
-  infrastructure?: InfrastructureProviders;
-}
-
-
 /**
  * Prompt for configuration options.
  */
-const promptConfigOptions = async (): Promise<PromptedConfig> => {
+const promptConfigOptions = async (): Promise<ChuiPromptConfig> => {
   const globalAppName = await promptGlobalAppName();
   const rootDomain = await promptRootDomain();
   const pulumiOrgName = await cli.prompt(`What is your Pulumi org name or username?`);
@@ -158,75 +154,11 @@ const promptConfigOptions = async (): Promise<PromptedConfig> => {
 };
 
 
-/**
- * Get a full Chui json config from the options we prompted for.
- *
- * @param config
- */
-const getJsonConfig = (config: PromptedConfig): ChuiConfigFile => {
-  const {
-    globalAppName,
-    rootDomain,
-    pulumiOrgName,
-    infrastructure
-  } = config;
-
-  const jsonConfig: ChuiConfigFile = {
-    version: "0.1.0",
-    globals: {
-      globalAppName,
-      rootDomain,
-      pulumiOrgName,
-      auth: AuthProviders.KeyCloak,
-      storage: StorageProviders.Minio,
-      serverless: ServerlessProviders.OpenFaas,
-      apps: []
-    },
-    environments: [
-      {
-        environment: 'production',
-        environmentDomain: rootDomain,
-      },
-      {environment: 'staging'},
-      {environment: 'dev'},
-    ],
-  };
-
-  if (infrastructure) {
-    jsonConfig.globals.infrastructure = infrastructure;
-  }
-
-  return jsonConfig;
-};
-
-
-/**
- * Write the json config file to yaml.
- *
- * @param jsonConfig
- */
-const writeYamlConfig = async (jsonConfig: ChuiConfigFile) => {
-  const {globals: {globalAppName}} = jsonConfig;
-  await mkdir(`./${globalAppName}`);
-  const yamlConfig = yaml.safeDump(jsonConfig);
-  await writeFile(path.join(
-    '.',
-    globalAppName,
-    CHUI_CONFIG_FILENAME,
-  ), yamlConfig);
-};
-
-
 export default class New extends Command {
   static description = 'Create a new Chui project.';
 
   async run() {
     const config = await promptConfigOptions();
-    const jsonConfig = getJsonConfig(config);
-    await writeYamlConfig(jsonConfig);
-
-    const {globalAppName} = config;
-    await initializeProject(`./${globalAppName}`);
-    console.log(chalk.green("Done! Welcome to your new Chui project."))
+    Chui.Project.createNewProject(config);
   }
 }

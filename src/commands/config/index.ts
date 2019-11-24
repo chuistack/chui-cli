@@ -10,7 +10,7 @@ export default class Index extends Command {
   };
 
   async run() {
-    const configFile = Config.findConfigFile();
+    const configFile = Config.getConfigFile();
     const {flags} = this.parse(Index);
     const {environment} = flags;
 
