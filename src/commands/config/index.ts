@@ -19,7 +19,7 @@ export default class Index extends Command {
       this.log(chalk.blue(configFile));
 
       if (!environment) {
-        console.log(Config.loadFullConfig());
+        console.log(Config.loadConfigFile());
       } else {
         process.env[Constants.CHUI_ENVIRONMENT_VARIABLE] = environment;
         console.log(Config.loadCurrentConfig());

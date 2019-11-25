@@ -85,7 +85,7 @@ export default class Add extends Command {
     let {name, source} = flags;
 
     if (name && source) {
-      Chui.App.addApp({name, source});
+      return Chui.App.addApp({name, source});
     }
 
     const app = await appPrompt();

@@ -16,7 +16,6 @@ import chalk from "chalk";
 import * as validator from "validator";
 
 
-
 /**
  * Creates a prompt for an app type based on the
  * official list of supported apps.
